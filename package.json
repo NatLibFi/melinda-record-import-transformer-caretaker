@@ -1,5 +1,5 @@
 {
-	"name": "@natlibfi/melinda-record-import-transformer-record-link-migration",
+	"name": "@natlibfi/melinda-record-import-transformer-caretaker",
 	"description": "Record link migration transformer for the Melinda record batch import system",
 	"author": {
 		"name": "The National Library of Finland"
@@ -17,7 +17,7 @@
 	"version": "0.0.1",
 	"main": "./dist/index.js",
 	"engines": {
-		"node": ">=10"
+		"node": ">=12"
 	},
 	"scripts": {
 		"start": "node dist/ndex.js",
@@ -31,10 +31,11 @@
 		"watch": "cross-env DEBUG=1 NODE_ENV=debug nodemon --watch src --exec 'npm test'"
 	},
 	"dependencies": {
-		"@natlibfi/marc-record": "^4.0.0",
-		"@natlibfi/melinda-commons": "7.1.0",
-		"@natlibfi/melinda-record-import-commons": "^7.0.1",
-		"@natlibfi/melinda-record-link-migration-commons": "git+https://github.com/NatLibFi/melinda-record-link-migration-commons.git#melkehitys-1117",
+		"@natlibfi/marc-record": "^6.1.1",
+		"@natlibfi/melinda-commons": "^11.1.1",
+		"@natlibfi/melinda-backend-commons": "^2.0.2",
+		"@natlibfi/melinda-record-import-commons": "^9.0.1",
+		"@natlibfi/melinda-record-link-migration-commons": "^1.0.0-alpha.4",
 		"moment": "^2.22.2",
 		"stream-chain": "^2.2.1",
 		"stream-json": "^1.3.1"
@@ -74,7 +75,7 @@
 				"@babel/preset-env",
 				{
 					"targets": {
-						"node": "10"
+						"node": "12"
 					}
 				}
 			]

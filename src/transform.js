@@ -33,16 +33,15 @@ import {MarcRecord} from '@natlibfi/marc-record';
 import validator from './validate';
 import moment from 'moment';
 import {EventEmitter} from 'events';
-import {Utils} from '@natlibfi/melinda-commons';
 import {recordActions, linkDataActions} from '@natlibfi/melinda-record-link-migration-commons';
+import {createLogger} from '@natlibfi/melinda-backend-commons';
+import {logError} from '@natlibfi/melinda-record-link-migration-commons/dist/utils';
 
 class TransformEmitter extends EventEmitter {}
 
 export default function (stream, {validate = true, fix = true}) {
-	MarcRecord.setValidationOptions({subfieldValues: false});
 	const {filterExistingFields, addOrReplaceDataFields, replaceValueInField} = recordActions();
 	const {convertLinkDataToDataFields} = linkDataActions();
-	const {createLogger} = Utils;
 	const logger = createLogger();
 	const Emitter = new TransformEmitter();
 
@@ -67,11 +66,12 @@ export default function (stream, {validate = true, fix = true}) {
 				}
 			});
 			pipeline.on('end', async () => {
-				console.log(`: Handled ${promises.length} recordEvents`);
+				logger.log('info', `Handled ${promises.length} record events from data`);
 				await Promise.all(promises);
 				Emitter.emit('end', promises.length);
 			});
 		} catch (err) {
+			logError(err);
 			Emitter.emit('error', err);
 		}
 	}
@@ -79,26 +79,26 @@ export default function (stream, {validate = true, fix = true}) {
 	async function convertRecord(data) {
 		logger.log('debug', 'Updating record START *******************************');
 
-		// InputData : {record, hostRecord, changes} OR {record, linkData, changes}
+		// InputData : {record, sourceRecord, changes} OR {record, linkData, changes}
 
 		// Data.record = record to be updated
-		const record = new MarcRecord(data.record);
+		const record = new MarcRecord(data.record, {subfieldValues: false});
 		logger.log('debug', `Record to be updated: ${JSON.stringify(record)}`);
 
 		// Data.changes = update changes
-		const changes = data.changes || [];
+		const changes = data.changes || [];
 		logger.log('debug', `${changes.length} update changes: ${JSON.stringify(changes)}`);
 
-		// Data.hostRecord = source record
-		const hostRecord = data.hostRecord === undefined ? null : new MarcRecord(data.hostRecord);
-		logger.log('debug', `Host record: ${JSON.stringify(hostRecord)}`);
+		// Data.sourceRecord = source record
+		const sourceRecord = data.sourceRecord === undefined ? null : new MarcRecord(data.sourceRecord, {subfieldValues: false});
+		logger.log('debug', `Host record: ${JSON.stringify(sourceRecord)}`);
 
 		// Data.linkData = Data to be used in changes
 		const linkData = data.linkData === undefined ? null : data.linkData;
 		logger.log('debug', `Linked data: ${JSON.stringify(linkData)}`);
 		logger.log('debug', '*******************************');
 
-		const resultRecord = await changesPump({changes, hostRecord, linkData, record});
+		const resultRecord = await changesPump({changes, sourceRecord, linkData, record});
 
 		logger.log('debug', 'Updating record DONE *******************************');
 		logger.log('debug', `Updated record: ${JSON.stringify(resultRecord)}`);
@@ -120,7 +120,7 @@ export default function (stream, {validate = true, fix = true}) {
 					subfields: [{code: 'a', value: 'foobar'}]
 				}
 			]
-		});
+		}, {subfieldValues: false});
 
 		if (data === false) {
 			fakeRecord.appendField({tag: 'FOO', value: 'bar'});
@@ -135,7 +135,7 @@ export default function (stream, {validate = true, fix = true}) {
 		return {failed: false, record: {...fakeRecord}};
 	}
 
-	async function changesPump({changes, hostRecord, linkData, record}) {
+	async function changesPump({changes, sourceRecord, linkData, record}) {
 		const [change, ...rest] = changes;
 		if (change === undefined) {
 			logger.log('debug', 'Changes done!');
@@ -161,13 +161,13 @@ export default function (stream, {validate = true, fix = true}) {
 			logger.log('debug', JSON.stringify(uniqueLinkDataFields));
 			const updatedRecord = await addOrReplaceDataFields(record, uniqueLinkDataFields, change);
 			logger.log('debug', `Updated record after add ${JSON.stringify(updatedRecord)}`);
-			return changesPump({changes: rest, hostRecord, linkData, record: updatedRecord});
+			return changesPump({changes: rest, sourceRecord, linkData, record: updatedRecord});
 		}
 
 		if (change.from !== undefined && change.to !== undefined) {
 			logger.log('debug', 'Replace change!');
 			/* Example
-			from: {tag: '001', value: 'value'}, // From host record
+			from: {tag: '001', value: 'value'}, // From source record
 			to: {
 				tag: '100',
 				value: {code: '0'},
@@ -181,11 +181,11 @@ export default function (stream, {validate = true, fix = true}) {
 			order: ['a', 'c', 'q', 'd', 'e', '0'] // Subfield sort order after modify
 			  */
 
-			const updatedRecord = await replaceValueInField(hostRecord, record, change);
-			logger.log('debug', `Updated record after change ${JSON.stringify(updatedRecord)}`);
-			return changesPump({changes: rest, hostRecord, linkData, record});
+			const updatedRecord = await replaceValueInField(sourceRecord, record, change);
+			// Logger.log('debug', `Updated record after change ${JSON.stringify(updatedRecord)}`);
+			return changesPump({changes: rest, sourceRecord, linkData, updatedRecord});
 		}
 
-		return changesPump({changes: rest, hostRecord, linkData, record});
+		return changesPump({changes: rest, sourceRecord, linkData, record});
 	}
 }
