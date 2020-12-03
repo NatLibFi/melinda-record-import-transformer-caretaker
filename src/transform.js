@@ -30,12 +30,9 @@ import {chain} from 'stream-chain';
 import {parser} from 'stream-json';
 import {streamArray} from 'stream-json/streamers/StreamArray';
 import {MarcRecord} from '@natlibfi/marc-record';
-import validator from './validate';
-import moment from 'moment';
 import {EventEmitter} from 'events';
-import {recordActions, linkDataActions} from '@natlibfi/melinda-record-link-migration-commons';
+import {recordActions, linkDataActions, logError} from '@natlibfi/melinda-record-link-migration-commons';
 import {createLogger} from '@natlibfi/melinda-backend-commons';
-import {logError} from '@natlibfi/melinda-record-link-migration-commons/dist/utils';
 
 class TransformEmitter extends EventEmitter {}
 
@@ -77,7 +74,7 @@ export default function (stream, {validate = true, fix = true}) {
 	}
 
 	async function convertRecord(data) {
-		logger.log('debug', 'Updating record START *******************************');
+		logger.log('verbose', 'Updating record START');
 
 		// InputData : {record, sourceRecord, changes} OR {record, linkData, changes}
 
@@ -96,14 +93,14 @@ export default function (stream, {validate = true, fix = true}) {
 		// Data.linkData = Data to be used in changes
 		const linkData = data.linkData === undefined ? null : data.linkData;
 		logger.log('silly', `Linked data: ${JSON.stringify(linkData)}`);
-		logger.log('debug', 'Link data handled *******************************');
+		logger.log('verbose', 'Link data handled');
 		const originalRecordClone = MarcRecord.clone(record, {subfieldValues: false});
 
 		const resultRecord = await changesPump({changes, sourceRecord, linkData, record});
 
-		logger.log('debug', 'Updating record DONE *******************************');
+		logger.log('verbose', 'Updating record DONE');
 		const updateNeeded = !originalRecordClone.equalsTo(resultRecord);
-		logger.log('info', `Needs to be updated: ${updateNeeded}`);
+		logger.log('info', `Record needs to be updated: ${updateNeeded}`);
 
 		if (updateNeeded) {
 			logger.log('debug', `Record to be updated: ${JSON.stringify(originalRecordClone.toObject())}`);
@@ -111,28 +108,26 @@ export default function (stream, {validate = true, fix = true}) {
 			logger.log('debug', `Linked data: ${JSON.stringify(linkData)}`);
 			logger.log('debug', `Updated record: ${JSON.stringify(resultRecord.toObject())}`);
 
-			logger.log('debug', '*******************************');
-			return {failed: false, record: {...resultRecord.toObject()}};
+			return {failed: false, record: resultRecord.toObject()};
 		}
 
-		logger.log('debug', '*******************************');
-		return {record: resultRecord.toObject(), failed: true, messages: ['No update needed!']};
+		const [f001] = resultRecord.get(/^001$/u);
+		return {record: f001.value, failed: true, messages: ['No update needed!']};
 	}
 
 	async function changesPump({changes, sourceRecord, linkData, record}) {
 		const [change, ...rest] = changes;
 		if (change === undefined) {
-			logger.log('debug', 'Changes done!');
+			logger.log('verbose', 'Changes done!');
 			return record;
 		}
 
-		logger.log('debug', 'Pumping change!');
+		logger.log('verbose', 'Pumping change!');
 		logger.log('debug', `Change: ${JSON.stringify(change)}`);
-		logger.log('debug', `Next: ${JSON.stringify(rest)}`);
-		logger.log('debug', '*******************************');
+		logger.log('debug', `Next change: ${JSON.stringify(rest)}`);
 
 		if (change.add !== undefined) {
-			logger.log('debug', 'Add change!');
+			logger.log('verbose', 'Add change!');
 
 			/* Example
 				add: {tag: '650', ind1: ' ', ind2: '7', subfields: [{code: 'a', value: '%s'}, {code: '2', value: 'yso/%s'}, {code: '0', value: 'http://www.yso.fi/onto/yso/%s'}]}, // To result record
@@ -140,16 +135,16 @@ export default function (stream, {validate = true, fix = true}) {
 				duplicateFilterCodes: ['2', '0']
 			*/
 			const linkDataFields = await convertLinkDataToDataFields(linkData, change);
-			logger.log('debug', JSON.stringify(linkDataFields));
+			logger.log('silly', JSON.stringify(linkDataFields));
 			const uniqueLinkDataFields = await filterExistingFields(linkDataFields, record);
-			logger.log('debug', JSON.stringify(uniqueLinkDataFields));
+			logger.log('silly', JSON.stringify(uniqueLinkDataFields));
 			await addOrReplaceDataFields(record, uniqueLinkDataFields, change);
-			logger.log('debug', `Updated record after add ${JSON.stringify(record)}`);
+			logger.log('silly', `Updated record after add ${JSON.stringify(record)}`);
 			return changesPump({changes: rest, sourceRecord, linkData, record});
 		}
 
 		if (change.from !== undefined && change.to !== undefined) {
-			logger.log('debug', 'Replace change!');
+			logger.log('verbose', 'Replace change!');
 			/* Example
 			from: {tag: '001', value: 'value'}, // From source record
 			to: {
@@ -171,7 +166,7 @@ export default function (stream, {validate = true, fix = true}) {
 		}
 
 		if (change.removeSubfields !== undefined) {
-			logger.log('debug', 'Remove change!');
+			logger.log('verbose', 'Remove change!');
 			// RemoveSubfields: {tag: '100', code: '0', value: 'digitsOnly'}
 			removeSubfields(record, change.removeSubfields);
 			return changesPump({changes: rest, sourceRecord, linkData, record});
